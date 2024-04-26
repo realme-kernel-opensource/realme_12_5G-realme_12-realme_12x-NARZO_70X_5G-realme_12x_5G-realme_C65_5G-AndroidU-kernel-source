@@ -1294,6 +1294,24 @@
 			size = <0 0x10000000>;
 			alignment = <0 0x200000>;
 		};
+
+                //#ifdef OPLUS_BUG_COMPATIBILITY
+                //xuhuangyu.BSP.6723736, 2024/02/26, MTK official patch ALPS08714371,提前reserve memory做为dpmaif bat table地址，防止alloc fail
+		dpmaif_resv_cache_mem: ccci-dpmaif-cache-memory {
+			compatible = "mediatek,dpmaif-resv-cache-mem";
+			size = <0 0x00190000>; /* 1638400 Bytes for 1rxq */
+			alignment = <0 0x1000>;
+			alloc-ranges = <0 0x40000000 0 0xf0000000>;
+		};
+
+		dpmaif_resv_nocache_mem: ccci-dpmaif-nocache-memory {
+			compatible = "mediatek,dpmaif-resv-nocache-mem";
+			no-map;
+			size = <0 0x0050000>; /* 327680 Bytes */
+			alignment = <0 0x1000>;
+			alloc-ranges = <0 0x40000000 0 0xf0000000>;
+		};
+               //#endif /*OPLUS_BUG_COMPATIBILITY*/
 	};
 
 	memory_ssmr_features: memory-ssmr-features {
@@ -1303,7 +1321,7 @@
 		tui-size = <0 0x4000000>;
 		wfd-region-based-size = <0 0x4000000>;
 		wfd-page-based-size = <0 0>;
-		prot-region-based-size = <0 0x10000000>;
+		prot-region-based-size = <0 0>; /* for shutdown Secure Camera memory */
 		prot-page-based-size = <0 0>;
 	};
 
@@ -1365,6 +1383,16 @@
 		interrupts = <GIC_SPI 546 IRQ_TYPE_EDGE_RISING 0>;
 	};
 
+	//#ifdef OPLUS_FEATURE_SECURITY_COMMON
+	oplus_secure_common:oplus_secure_common {
+		compatible = "oplus,secure_common";
+		oplus,sec_reg_num = <0>;
+		oplus,sec_en_anti_reg = <0>;
+		oplus,sec_override1_reg = <0>;
+		oplus,override1_en_value = <0>;
+	};
+	//#endif  OPLUS_FEATURE_SECURITY_COMMON
+
 	utos_tester {
 		compatible = "microtrust,tester-v1";
 	};
@@ -1422,7 +1450,7 @@
 
 		dfd_mcu: dfd-mcu {
 			compatible = "mediatek,dfd_mcu";
-			enabled = <1>;
+			enabled = <0>;
 			hw-version = <30>;
 			sw-version = <1>;
 			dfd-timeout = <0x1f4>;
@@ -1540,7 +1568,10 @@
 			use_bcpu_weight = "enable";
 			cpu_power_bcpu_weight_max = <100>;
 			cpu_power_bcpu_weight_min = <100>;
-
+			cm-mgr-cpu-opp-to-dram = <0 0 6 6 6 6 6 6
+				6 6 6 6 6 6 6 6
+				6 6 6 6 6 6 6 6
+				6 6 6 6 6 6 6 6>;
 			/* use_cpu_to_dram_map = "enable"; */
 			/* cm_mgr_cpu_opp_to_dram = <0 0 0 0 1 1 1 1 */
 			/* 1 2 2 2 2 2 2 2>; */
@@ -3768,7 +3799,7 @@
 				<1>, /*MTK_DRM_OPT_SODI_SUPPORT*/
 				<1>, /*MTK_DRM_OPT_IDLE_MGR*/
 				<0>, /*MTK_DRM_OPT_IDLEMGR_SWTCH_DECOUPLE*/
-				<1>, /*MTK_DRM_OPT_IDLEMGR_BY_REPAINT*/
+				<0>, /*MTK_DRM_OPT_IDLEMGR_BY_REPAINT*/
 				<0>, /*MTK_DRM_OPT_IDLEMGR_ENTER_ULPS*/
 				<0>, /*MTK_DRM_OPT_IDLEMGR_KEEP_LP11*/
 				<1>, /*MTK_DRM_OPT_DYNAMIC_RDMA_GOLDEN_SETTING*/
@@ -3776,7 +3807,7 @@
 				<0>, /*MTK_DRM_OPT_MET_LOG*/
 				<1>, /*MTK_DRM_OPT_USE_PQ*/
 				<1>, /*MTK_DRM_OPT_ESD_CHECK_RECOVERY*/
-				<1>, /*MTK_DRM_OPT_ESD_CHECK_SWITCH*/
+				<0>, /*MTK_DRM_OPT_ESD_CHECK_SWITCH*/
 				<1>, /*MTK_DRM_OPT_PRESENT_FENCE*/
 				<0>, /*MTK_DRM_OPT_RDMA_UNDERFLOW_AEE*/
 				<0>, /*MTK_DRM_OPT_DSI_UNDERRUN_AEE*/
@@ -3914,6 +3945,7 @@
 			ccorr_bit = <13>;
 			ccorr_num_per_pipe = <1>;
 			ccorr_linear_per_pipe = <0x01>;
+			ccorr_prim_force_linear = <0x1>;
 		};
 
 
@@ -4000,15 +4032,9 @@
 
 		dsi_te: dsi_te {
 			compatible = "mediatek, dsi_te-eint";
-			status = "disabled";
-		};
-
-		mt6382nfc: mt6382nfc {
-			compatible = "mediatek, mt6382_nfc-eint";
 			interrupt-parent = <&pio>;
-			interrupts = <41 IRQ_TYPE_EDGE_BOTH 41 0>;
-			mt6382-nfc-srclk = <&pio 41 0x0>;
-			status = "disabled";
+			interrupts = <85 IRQ_TYPE_EDGE_RISING>;
+			status = "disable";
 		};
 
 		bdgsupport: bdgsupport {
@@ -5067,6 +5093,12 @@
 				mode-ddr-reserve = <BOOT_DDR_RSVD>;
 				mode-meta = <BOOT_META>;
 				mode-rpmbpk = <BOOT_RPMBPK>;
+				mode-kernel = <BOOT_KERNEL>;
+				mode-silence = <BOOT_SILENCE>;
+				mode-sau = <BOOT_SAU>;
+				mode-sblmemtest = <BOOT_AGINGTEST>;
+				mode-ftm = <BOOT_FACTORY>;
+				mode-edl = <BOOT_EDL>;
 			};
 		};
 
@@ -5990,6 +6022,32 @@
 			mediatek,srclken-rc-broadcast;
 			mediatek,enable;
 		};
+//#ifdef OPLUS_FEATURE_POWER_THERMAL
+		shell_front {
+			compatible = "oplus,shell-temp";
+		};
+
+		shell_frame {
+			compatible = "oplus,shell-temp";
+		};
+
+		shell_back {
+			compatible = "oplus,shell-temp";
+		};
+//#endif /* OPLUS_FEATURE_POWER_THERMAL */
+//#ifdef CONFIG_OPLUS_OMRG
+		oplus-omrg {
+			compatible = "oplus,oplus-omrg";
+			oplus-omrg0 {
+				oplus,divider-cells = <2>;
+				oplus,omrg-master = <&cpu4 1500000 2000000>;
+				oplus,omrg-slave = <&cpu0 1100000 1500000>;
+				up_limit_enable;
+				/* down_limit_enable; */
+				/* thermal_enable; */
+			};
+		};
+//#endif
 	};
 
 	spmtwam: spmtwam@1c001000 {
@@ -6428,7 +6486,7 @@
 
 			/* feature, frequecy, coreid */
 			scp_feature_tbl = < 0   5 1>,	/* vow */
-					  < 1   0 0>,	/* sensor */
+					  < 1 200 0>,	/* sensor */
 					  < 2  26 0>,	/* flp */
 					  < 3   0 0>,	/* rtos */
 					  < 4 200 1>,	/* speaker */
@@ -6941,6 +6999,15 @@
 		release-step0 = <1>;
 	};
 
+	//#ifdef OPLUS_VENDOR_SWTP
+	swtp: swtp {
+		compatible = "mediatek, swtp-eint";
+	};
+	swtp_1: swtp_1 {
+		compatible = "mediatek, swtp1-eint";
+	};
+	//#endif  /*OPLUS_VENDOR_SWTP*/
+
 	mmdvfs: mmdvfs {
 		compatible = "mediatek,mmdvfs";
 		operating-points-v2 = <&opp_table_disp0>;
@@ -7376,9 +7443,9 @@
 
 	extcon_usb: extcon_usb {
 		compatible = "mediatek,extcon-usb";
-		vbus-supply = <&mt6375_otg_vbus>;
+		/*vbus-supply = <&mt6375_otg_vbus>;
 		vbus-voltage = <5000000>;
-		vbus-current = <1800000>;
+		vbus-current = <1800000>;*/
 		charger = <&mt6375_chg>;
 		tcpc = "type_c_port0";
 		mediatek,bypss-typec-sink = <1>;
@@ -7415,6 +7482,16 @@
 
 	flashlight_core: flashlight_core {
 		compatible = "mediatek,flashlight_core";
+	};
+
+	flashlights_barley: flashlights_barley {
+    	compatible = "mediatek,flashlights_barley";
+    	decouple = <1>;
+    	channel@1 {
+                type = <0>;
+                ct = <0>;
+                part = <0>;
+    	};
 	};
 
 	mtk_composite_v4l2_1: mtk_composite_v4l2_1 {
@@ -7460,20 +7537,24 @@
 
 	pbm: pbm {
 		compatible = "mediatek,pbm";
+		status = "disabled";
 	};
 
 	mdpm: mdpm {
 		compatible = "mediatek,mt6835-mdpm";
+		status = "disabled";
 	};
 
 	cpu_power_throttling: cpu_power_throttling {
 		compatible = "mediatek,cpu-power-throttling";
+		status = "disabled";
 		lbat_cpu_limit = <900000 900000 1300000>;
 		oc_cpu_limit = <900000 900000 1300000>;
 	};
 
 	md_power_throttling: md_power_throttling {
 		compatible = "mediatek,md-power-throttling";
+		status = "disabled";
 		lbat_md_reduce_tx = <6>;
 		oc_md_reduce_tx = <6>;
 	};
@@ -7908,6 +7989,10 @@
 		qos-mode = <0>;
 		qos-value = <0>;
 	};
+
+	wl2866d: wl2866d {
+		compatible = "mediatek,gpio_wl2866d";
+	};
 };
 
 #include "mediatek/mt6685.dtsi"
@@ -7932,12 +8017,22 @@
 	status = "okay";
 };
 
+/*#ifdef OPLUS_FEATURE_SECURITY_COMMON*/
+&mtee_svp {
+	mtee: MTEE {
+		compatible = "mediatek,mtk_svp_on_mtee_support";
+	};
+	svp: SecureVideoPath {
+		compatible = "mediatek,mtk_sec_video_path_support";
+	};
+};
+
 &i2c5 {
 	clock-frequency = <1000000>;
 	mt6375: mt6375@34 {
 		compatible = "mediatek,mt6375";
 		reg = <0x34>;
-		status = "okay";
+		status = "disable";
 		interrupt-parent = <&pio>;
 		interrupts = <3 IRQ_TYPE_LEVEL_LOW>;
 		interrupt-controller;
@@ -8331,3 +8426,7 @@
 	};
 };
 /* AUDIO GPIO standardization end */
+#include "mediatek/tcpc_sgm7220.dtsi"
+#include "mediatek/tcpc_aw35616.dtsi"
+#include "mediatek/tcpc_rt1715.dtsi"
+#include "mediatek/tcpc_et7303.dtsi"

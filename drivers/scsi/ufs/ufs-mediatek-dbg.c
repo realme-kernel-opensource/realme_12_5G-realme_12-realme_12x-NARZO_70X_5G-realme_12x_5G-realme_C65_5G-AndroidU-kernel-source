@@ -553,6 +553,43 @@ static void probe_ufshcd_system_resume(void *data, const char *dev_name,
 	probe_ufshcd_pm(data, dev_name, err, time_us, pwr_mode, link_state,
 			UFSDBG_SYSTEM_RESUME);
 }
+//bsp.storage.ufs 2021.10.14 add for /proc/devinfo/ufs
+#ifdef OPLUS_DEVINFO_UFS
+/*feature-devinfo-v001-1-begin*/
+static int create_devinfo_ufs(struct scsi_device *sdev)
+{
+	static char temp_version[5] = {0};
+	static char vendor[9] = {0};
+	static char model[17] = {0};
+	int ret = 0;
+
+	pr_info("get ufs device vendor/model/rev\n");
+	WARN_ON(!sdev);
+	strncpy(temp_version, sdev->rev, 4);
+	strncpy(vendor, sdev->vendor, 8);
+	strncpy(model, sdev->model, 16);
+
+	ret = register_device_proc("ufs_version", temp_version, vendor);
+
+	if (ret) {
+		pr_err("%s create ufs_version fail, ret=%d",__func__,ret);
+		return ret;
+	}
+
+	ret = register_device_proc("ufs", model, vendor);
+
+	if (ret) {
+		pr_err("%s create ufs fail, ret=%d",__func__,ret);
+	}
+
+	return ret;
+}
+/*feature-devinfo-v001-1-end*/
+static void probe_android_vh_ufs_update_sdev(void *data, struct scsi_device *sdev)
+{
+	pr_info_once("%s ret=%d",__func__,create_devinfo_ufs(sdev));
+}
+#endif
 
 /* trace point enable condition */
 enum tp_en {
@@ -612,6 +649,9 @@ static struct tracepoints_table interests[] = {
 	{.name = "ufshcd_wl_runtime_resume", .func = probe_ufshcd_runtime_resume},
 	{.name = "ufshcd_wl_suspend", .func = probe_ufshcd_system_suspend},
 	{.name = "ufshcd_wl_resume", .func = probe_ufshcd_system_resume},
+#ifdef OPLUS_DEVINFO_UFS
+	{.name = "android_vh_ufs_update_sdev", .func = probe_android_vh_ufs_update_sdev},
+#endif
 };
 
 #define FOR_EACH_INTEREST(i) \

@@ -2073,6 +2073,14 @@ int tcpc_typec_handle_cc_change(struct tcpc_device *tcpc)
 			typec_enter_low_power_mode(tcpc);
 		if (typec_is_drp_toggling())
 			return 0;
+
+#ifndef OPLUS_FEATURE_CHG_BASIC
+/* oplus add for mini adapter did not charge */
+		if (tcpc->tcpc_flags & TCPC_FLAGS_FLOATING_GROUND &&
+		   (tcpc->typec_state == typec_unattached_snk ||
+		    tcpc->typec_state == typec_unattached_src))
+			return 0;
+#endif
 	}
 
 #if CONFIG_TYPEC_CAP_NORP_SRC
@@ -2464,10 +2472,12 @@ static inline int typec_handle_vbus_present(struct tcpc_device *tcpc)
 {
 	switch (tcpc->typec_wait_ps_change) {
 	case TYPEC_WAIT_PS_SNK_VSAFE5V:
+		tcpc->pd_during_direct_charge = false;
 		typec_cc_snk_detect_vsafe5v_entry(tcpc);
 		typec_alert_attach_state_change(tcpc);
 		break;
 	case TYPEC_WAIT_PS_SRC_VSAFE5V:
+		tcpc->pd_during_direct_charge = false;
 		typec_source_attached_with_vbus_entry(tcpc);
 
 #if CONFIG_TYPEC_CHECK_LEGACY_CABLE
@@ -2481,6 +2491,7 @@ static inline int typec_handle_vbus_present(struct tcpc_device *tcpc)
 		break;
 #if CONFIG_TYPEC_CAP_DBGACC
 	case TYPEC_WAIT_PS_DBG_VSAFE5V:
+		tcpc->pd_during_direct_charge = false;
 		typec_debug_acc_attached_with_vbus_entry(tcpc);
 		typec_alert_attach_state_change(tcpc);
 		break;
@@ -2495,6 +2506,7 @@ static inline int typec_attached_snk_vbus_absent(struct tcpc_device *tcpc)
 #if TYPEC_EXIT_ATTACHED_SNK_VIA_VBUS
 #if IS_ENABLED(CONFIG_USB_POWER_DELIVERY)
 #if CONFIG_USB_PD_DIRECT_CHARGE
+	tcpc->pd_during_direct_charge = true;
 	if (tcpc->pd_during_direct_charge && !tcpci_check_vsafe0v(tcpc)) {
 		TYPEC_DBG("Ignore vbus_absent(snk), DirectCharge\n");
 		return 0;
@@ -2845,6 +2857,12 @@ int tcpc_typec_init(struct tcpc_device *tcpc, uint8_t typec_role)
 #endif	/* CONFIG_TYPEC_POWER_CTRL_INIT */
 
 	typec_unattached_entry(tcpc);
+
+#ifdef OPLUS_FEATURE_CHG_BASIC
+/* oplus add for cc toggle */
+	tcpci_notify_wd0_state(tcpc, false);
+#endif
+
 	return ret;
 }
 

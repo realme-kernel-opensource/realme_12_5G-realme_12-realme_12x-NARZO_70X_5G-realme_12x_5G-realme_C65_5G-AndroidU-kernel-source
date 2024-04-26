@@ -236,4 +236,7 @@ source "drivers/interconnect/Kconfig"
 source "drivers/counter/Kconfig"
 
 source "drivers/most/Kconfig"
+
+# TMS DEVICES --Customized modifications
+source "drivers/nfc/thn31/Kconfig"
 endmenu

@@ -968,6 +968,9 @@ static dma_addr_t get_meta_buffer_dma_addr(struct mtk_vcodec_ctx *ctx, int fd)
 	dmabuf = dma_buf_get(fd);
 	mtk_v4l2_debug(8, "%s, dmabuf:%p", __func__, dmabuf);
 
+	if (IS_ERR(dmabuf))
+		return dma_addr;
+
 	if (dmabuf) {
 		for (i = 0; i < MAX_META_BUF_CNT; ++i) {
 			if (dmabuf == ctx->dma_meta_list[i].dmabuf) {
@@ -1059,6 +1062,9 @@ static void *get_general_buffer_va(struct mtk_vcodec_ctx *ctx, int fd)
 	dmabuf = dma_buf_get(fd);
 	mtk_v4l2_debug(8, "%s, dmabuf:%p", __func__, dmabuf);
 
+	if (IS_ERR(dmabuf))
+		return NULL;
+
 	if (dmabuf) {
 		for (i = 0; i < MAX_GEN_BUF_CNT; ++i) {
 			if (dmabuf == ctx->dma_buf_list[i].dmabuf) {
@@ -1086,6 +1092,9 @@ static dma_addr_t get_general_buffer_dma_addr(struct mtk_vcodec_ctx *ctx, int fd
 
 	dmabuf = dma_buf_get(fd);
 	mtk_v4l2_debug(8, "%s, dmabuf:%p", __func__, dmabuf);
+
+	if (IS_ERR(dmabuf))
+		return dma_addr;
 
 	if (dmabuf) {
 		for (i = 0; i < MAX_GEN_BUF_CNT; ++i) {
@@ -1564,8 +1573,7 @@ not_put_fb:
 			mutex_lock(&ctx->dev->ctx_mutex);
 		list_for_each_safe(p, q, &ctx->dev->ctx_list) {
 			tmp_ctx = list_entry(p, struct mtk_vcodec_ctx, list);
-			if (tmp_ctx != NULL &&
-			    tmp_ctx->state < MTK_STATE_ABORT && tmp_ctx->state > MTK_STATE_FREE)
+			if (tmp_ctx != NULL && tmp_ctx->state == MTK_STATE_HEADER)
 				v4l2_m2m_try_schedule(tmp_ctx->m2m_ctx);
 		}
 		if (!mtk_vcodec_is_vcp(MTK_INST_DECODER))
@@ -3303,8 +3311,12 @@ static int vb2ops_vdec_buf_prepare(struct vb2_buffer *vb)
 		if (mtkbuf->general_user_fd > -1) {
 			mtkbuf->frame_buffer.dma_general_buf =
 				dma_buf_get(mtkbuf->general_user_fd);
-			mtkbuf->frame_buffer.dma_general_addr =
-				get_general_buffer_dma_addr(ctx, mtkbuf->general_user_fd);
+			if (IS_ERR(mtkbuf->frame_buffer.dma_general_buf))
+				mtkbuf->frame_buffer.dma_general_buf = 0;
+			else {
+				mtkbuf->frame_buffer.dma_general_addr =
+					get_general_buffer_dma_addr(ctx, mtkbuf->general_user_fd);
+			}
 		} else
 			mtkbuf->frame_buffer.dma_general_buf = 0;
 
@@ -3317,8 +3329,12 @@ static int vb2ops_vdec_buf_prepare(struct vb2_buffer *vb)
 		if (mtkbuf->meta_user_fd > 0) {
 			mtkbuf->frame_buffer.dma_meta_buf =
 				dma_buf_get(mtkbuf->meta_user_fd);
-			mtkbuf->frame_buffer.dma_meta_addr =
-				get_meta_buffer_dma_addr(ctx, mtkbuf->meta_user_fd);
+			if (IS_ERR(mtkbuf->frame_buffer.dma_meta_buf))
+				mtkbuf->frame_buffer.dma_meta_buf = 0;
+			else {
+				mtkbuf->frame_buffer.dma_meta_addr =
+					get_meta_buffer_dma_addr(ctx, mtkbuf->meta_user_fd);
+			}
 		} else
 			mtkbuf->frame_buffer.dma_meta_buf = 0;
 		mtk_v4l2_debug(4,

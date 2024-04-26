@@ -206,7 +206,7 @@ const struct mtk_dsi_driver_data mt6835_dsi_driver_data = {
 	.dsi_buffer = false,
 	.buffer_unit = 18,
 	.sram_unit = 18,
-	.max_vfp = 0x1194,
+	.max_vfp = 0x7ffe,
 	.mmclk_by_datarate = mtk_dsi_set_mmclk_by_datarate,
 };
 
@@ -1503,7 +1503,7 @@ const struct mtk_mmsys_driver_data mt6835_mmsys_driver_data = {
 	.mmsys_id = MMSYS_MT6835,
 	.mode_tb = mt6835_mode_tb,
 	.sodi_config = mt6835_mtk_sodi_config,
-	.has_smi_limitation = false,
+	.has_smi_limitation = true,
 	.doze_ctrl_pmic = true,
 	.can_compress_rgb565 = true,
 	.bypass_infra_ddr_control = true,

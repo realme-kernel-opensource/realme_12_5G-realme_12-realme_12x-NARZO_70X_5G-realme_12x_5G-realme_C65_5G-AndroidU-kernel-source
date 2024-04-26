@@ -23,6 +23,11 @@
 #include "mt6377-accdet.h"
 #include "mt6377.h"
 
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+#include <soc/oplus/system/oplus_mm_kevent_fb.h>
+#define HEADSET_ERR_FB_VERSION    "1.0.0"
+#endif
+
 /* global variables definition */
 #define REGISTER_VAL(x)	(x - 1)
 #define HAS_CAP(_c, _x)	(((_c) & (_x)) == (_x))
@@ -55,6 +60,9 @@
 #define EINT_PLUG_OUT			(0)
 #define EINT_PLUG_IN			(1)
 #define EINT_MOISTURE_DETECTED	(2)
+#ifndef OPLUS_ARCH_EXTENDS
+#define OPLUS_ARCH_EXTENDS
+#endif
 
 struct mt6377_accdet_data {
 	struct snd_soc_jack jack;
@@ -103,6 +111,17 @@ struct mt6377_accdet_data {
 	/* when eint issued, queue work: eint_work */
 	struct work_struct eint_work;
 	struct workqueue_struct *eint_workqueue;
+#ifdef OPLUS_ARCH_EXTENDS
+	struct delayed_work hp_detect_work;
+#endif
+#ifdef CONFIG_HSKEY_BLOCK
+	struct delayed_work hskey_block_work;
+	bool g_hskey_block_flag;
+#endif /* CONFIG_HSKEY_BLOCK */
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+	struct delayed_work fb_delaywork;
+	struct workqueue_struct *fb_workqueue;
+#endif
 	u32 water_r;
 	u32 moisture_ext_r;
 	u32 moisture_int_r;
@@ -845,6 +864,14 @@ static u32 key_check(u32 v)
 static void send_key_event(u32 keycode, u32 flag)
 {
 	int report = 0;
+
+#ifdef CONFIG_HSKEY_BLOCK
+	pr_info("[accdet][send_key_event]g_hskey_block_flag = %d\n", accdet->g_hskey_block_flag);
+	if (accdet->g_hskey_block_flag) {
+		pr_info("[accdet][send_key_event]No key event in 1s after inserting 4-pole headsets\n");
+		return;
+	}
+#endif /* CONFIG_HSKEY_BLOCK */
 
 	switch (keycode) {
 	case DW_KEY:
@@ -1622,6 +1649,26 @@ static void dis_micbias_work_callback(struct work_struct *work)
 	}
 }
 
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+static void feedback_work_callback(struct work_struct *work)
+{
+	char fd_buf[MM_KEVENT_MAX_PAYLOAD_SIZE] = {0};
+
+	pr_notice("%s enter\n", __func__);
+
+	mini_dump_register();
+
+	scnprintf(fd_buf, sizeof(fd_buf) - 1, \
+		"payload@@ACCDET_IRQ not trigger,cable_type=%u,caps=0x%x,cur_eint=%u," \
+		"eint0=%u,eint1=%u,regs:%s", \
+		accdet->cable_type, accdet->data->caps, accdet->eint_id, \
+		accdet->eint0_state, accdet->eint1_state, accdet_log_buf);
+
+	mm_fb_audio_kevent_named(OPLUS_AUDIO_EVENTID_HEADSET_DET,
+					MM_FB_KEY_RATELIMIT_5MIN, fd_buf);
+}
+#endif /*CONFIG_OPLUS_FEATURE_MM_FEEDBACK*/
+
 static void eint_work_callback(struct work_struct *work)
 {
 	if (accdet->cur_eint_state == EINT_PLUG_IN) {
@@ -1636,7 +1683,21 @@ static void eint_work_callback(struct work_struct *work)
 		accdet_init();
 
 		enable_accdet(0);
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+/* delay time must less than __pm_wakeup_event time 7 * HZ */
+		if (accdet->fb_workqueue) {
+			queue_delayed_work(accdet->fb_workqueue, \
+					&accdet->fb_delaywork, 6 * HZ);
+			pr_notice("%s queue_delayed_work fb_delaywork\n", __func__);
+		}
+#endif
 	} else {
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+		if (accdet->fb_workqueue) {
+			cancel_delayed_work_sync(&accdet->fb_delaywork);
+			pr_notice("%s cancel_delayed_work_sync fb_delaywork\n", __func__);
+		}
+#endif
 		mutex_lock(&accdet->res_lock);
 		accdet->eint_sync_flag = false;
 		accdet->thing_in_flag = false;
@@ -1660,6 +1721,14 @@ static void eint_work_callback(struct work_struct *work)
 	} else if (HAS_CAP(accdet->data->caps, ACCDET_AP_GPIO_EINT))
 		enable_irq(accdet->gpioirq);
 }
+
+#ifdef CONFIG_HSKEY_BLOCK
+static void disable_hskey_block_callback(struct work_struct *work)
+{
+	pr_info("[accdet][disable_hskey_block_callback]:\n");
+	accdet->g_hskey_block_flag = false;
+}
+#endif /* CONFIG_HSKEY_BLOCK */
 
 void accdet_set_debounce(int state, unsigned int debounce)
 {
@@ -1862,6 +1931,13 @@ static void accdet_work_callback(struct work_struct *work)
 {
 	u32 pre_cable_type = accdet->cable_type;
 
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+	if (accdet->fb_workqueue) {
+		cancel_delayed_work_sync(&accdet->fb_delaywork);
+		pr_notice("%s cancel_delayed_work_sync fb_delaywork\n", __func__);
+	}
+#endif
+
 	__pm_stay_awake(accdet->wake_lock);
 	check_cable_type();
 
@@ -1914,8 +1990,26 @@ static int pmic_eint_queue_work(int eintID)
 					}
 				}
 			}
+#ifndef OPLUS_ARCH_EXTENDS
 			ret = queue_work(accdet->eint_workqueue,
 					&accdet->eint_work);
+#else
+			if (accdet->cur_eint_state == EINT_PLUG_IN) {
+				pr_info("%s delayed work 500ms scheduled when plugging in\n", __func__);
+				schedule_delayed_work(&accdet->hp_detect_work, msecs_to_jiffies(500));
+#ifdef CONFIG_HSKEY_BLOCK
+				accdet->g_hskey_block_flag = true;
+				schedule_delayed_work(&accdet->hskey_block_work, msecs_to_jiffies(1500));
+#endif /* CONFIG_HSKEY_BLOCK */
+			} else {
+				pr_info("[accdet_eint_func]delayed work 0ms scheduled when plugging out\n");
+				cancel_delayed_work_sync(&accdet->hp_detect_work);
+				schedule_delayed_work(&accdet->hp_detect_work, 0);
+#ifdef CONFIG_HSKEY_BLOCK
+				cancel_delayed_work_sync(&accdet->hskey_block_work);
+#endif /* CONFIG_HSKEY_BLOCK */
+			}
+#endif
 		} else
 			pr_notice("%s invalid EINT ID!\n", __func__);
 	} else if (HAS_CAP(accdet->data->caps, ACCDET_PMIC_EINT1)) {
@@ -3142,6 +3236,12 @@ static int mt6377_accdet_probe(struct platform_device *pdev)
 		ret = -1;
 		goto err_create_workqueue;
 	}
+#ifdef OPLUS_ARCH_EXTENDS
+	INIT_DELAYED_WORK(&accdet->hp_detect_work, eint_work_callback);
+#endif
+#ifdef CONFIG_HSKEY_BLOCK
+	INIT_DELAYED_WORK(&accdet->hskey_block_work, disable_hskey_block_callback);
+#endif /* CONFIG_HSKEY_BLOCK */
 
 	if (HAS_CAP(accdet->data->caps, ACCDET_AP_GPIO_EINT)) {
 		ret = ext_eint_setup(pdev);
@@ -3150,6 +3250,16 @@ static int mt6377_accdet_probe(struct platform_device *pdev)
 			goto err_create_attr;
 		}
 	}
+
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_MM_FEEDBACK)
+	accdet->fb_workqueue = create_singlethread_workqueue("hs_feedback");
+	INIT_DELAYED_WORK(&accdet->fb_delaywork, feedback_work_callback);
+	if (!accdet->fb_workqueue) {
+		dev_dbg(&pdev->dev, "Error: Create feedback workqueue failed\n");
+	}
+	dev_info(&pdev->dev, "%s: event_id=%u, version:%s\n", __func__, \
+			OPLUS_AUDIO_EVENTID_HEADSET_DET, HEADSET_ERR_FB_VERSION);
+#endif
 
 	ret = accdet_create_attr(&mt6377_accdet_driver.driver);
 	if (ret) {

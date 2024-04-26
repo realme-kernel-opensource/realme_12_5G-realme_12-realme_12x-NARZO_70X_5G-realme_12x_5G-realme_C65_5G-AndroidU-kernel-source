@@ -1269,6 +1269,9 @@ static int imgsensor_set_ctrl(struct v4l2_ctrl *ctrl)
 			/* update timeout value upon seamless switch*/
 			ctx->exposure->val = info->ae_ctrl[0].exposure.arr[0];
 			ctx->shutter_for_timeout = info->ae_ctrl[0].exposure.arr[0];
+			#ifdef OPLUS_FEATURE_CAMERA_COMMON
+			ctx->is_sensor_scenario_inited = 1;
+			#endif /*OPLUS_FEATURE_CAMERA_COMMON*/
 			if (ctx->cur_mode->fine_intg_line)
 				ctx->shutter_for_timeout /= 1000;
 
@@ -1400,6 +1403,19 @@ static int imgsensor_set_ctrl(struct v4l2_ctrl *ctrl)
 			ctx->aov_mclk_ulposc_flag = 1;
 		else
 			ctx->aov_mclk_ulposc_flag = 0;
+		break;
+	case V4L2_CID_MTK_SENSOR_RMSC_MODE:
+		{
+			struct mtk_sensor_rmsc_mode *rmsc_mode = ctrl->p_new.p;
+
+			adaptor_logd(ctx,
+				"V4L2_CID_MTK_SENSOR_RMSC_MODE qbc_rmsc_mode = %d\n",
+				rmsc_mode->qbc_rmsc_mode);
+
+			subdrv_call(ctx, feature_control,
+				SENSOR_FEATURE_SET_SENSOR_RMSC_MODE,
+				ctrl->p_new.p, &len);
+		}
 		break;
 	}
 
@@ -1939,6 +1955,17 @@ static const struct v4l2_ctrl_config cfg_mtkcam_aov_switch_mclk_ulposc = {
 	.step = 1,
 };
 
+static struct v4l2_ctrl_config cfg_sensor_rmsc_mode = {
+	.ops = &ctrl_ops,
+	.id = V4L2_CID_MTK_SENSOR_RMSC_MODE,
+	.name = "sensor_rmsc_mode",
+	.type = V4L2_CTRL_TYPE_U32,
+	.flags = V4L2_CTRL_FLAG_EXECUTE_ON_WRITE,
+	.max = 0xffffffff,
+	.step = 1,
+	.dims = {sizeof_u32(struct mtk_sensor_rmsc_mode)},
+};
+
 void adaptor_sensor_init(struct adaptor_ctx *ctx)
 {
 #if IMGSENSOR_LOG_MORE
@@ -2221,6 +2248,8 @@ int adaptor_init_ctrls(struct adaptor_ctx *ctx)
 	v4l2_ctrl_new_custom(ctrl_hdlr, &cfg_sensor_init, NULL);
 	v4l2_ctrl_new_custom(ctrl_hdlr, &cfg_sensor_reset_s_stream, NULL);
 	v4l2_ctrl_new_custom(ctrl_hdlr, &cfg_sensor_reset_by_user, NULL);
+	v4l2_ctrl_new_custom(ctrl_hdlr, &cfg_sensor_rmsc_mode, NULL);
+
 
 	if (ctrl_hdlr->error) {
 		ret = ctrl_hdlr->error;

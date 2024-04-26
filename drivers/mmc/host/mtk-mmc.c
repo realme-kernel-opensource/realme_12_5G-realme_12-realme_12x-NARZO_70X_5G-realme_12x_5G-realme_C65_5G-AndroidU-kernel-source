@@ -34,6 +34,7 @@
 #include <linux/mmc/slot-gpio.h>
 
 #include "../core/card.h"
+#include "../core/core.h"
 #include "cqhci.h"
 #include "mtk-mmc.h"
 #include "mtk-mmc-dbg.h"
@@ -42,7 +43,6 @@
 #include <linux/soc/mediatek/mtk_sip_svc.h>
 #include <mt-plat/dvfsrc-exp.h>
 #include <mt-plat/mtk_blocktag.h>
-
 
 static const struct mtk_mmc_compatible mt8135_compat = {
 	.clk_div_bits = 8,
@@ -1095,9 +1095,47 @@ static void msdc_cmd_next(struct msdc_host *host,
 		msdc_start_data(host, mrq, cmd, cmd->data);
 }
 
+//#ifdef /*OPLUS_FEATURE_TP_BASIC */
+/*add for non standard SDIO slave*/
+#define SDIO_RESET_CCCR_ABORT_WRITE_AGR (0x80000000 | SDIO_CCCR_ABORT << 9 | 0x08)
+#define SDIO_RESET_CCCR_ABORT_READ_AGR (SDIO_CCCR_ABORT << 9)
+static int msdc_request_explorer(struct mmc_host *mmc, struct mmc_request *mrq)
+{
+	struct msdc_host *host = mmc_priv(mmc);
+
+	if (host->filter_enable == 1) {
+		if (mrq->cmd->opcode == MMC_GO_IDLE_STATE) {
+			mrq->cmd->error = -ENOMEDIUM;
+			pr_err("%s: enter opcode:%d\n",  __func__, mrq->cmd->opcode);
+			pr_err("%s: enter arg:%d\n",  __func__, mrq->cmd->arg);
+			//sdhci_finish_mrq(host, mrq);
+			msdc_request_done(host, mrq);
+			return 1;
+		}
+
+		if ((mrq->cmd->opcode == SD_IO_RW_DIRECT)  && (mrq->cmd->arg == SDIO_RESET_CCCR_ABORT_WRITE_AGR || mrq->cmd->arg == SDIO_RESET_CCCR_ABORT_READ_AGR)) {
+			mrq->cmd->error = -ENOMEDIUM;
+			pr_err("%s: enter opcode:%d\n",  __func__, mrq->cmd->opcode);
+			pr_err("%s: enter arg:%d\n",  __func__, mrq->cmd->arg);
+			//sdhci_finish_mrq(host, mrq);
+			msdc_request_done(host, mrq);
+			return 1;
+		}
+	}
+
+	return 0;
+
+}
+//#endif /* OPLUS_FEATURE_TP_BASIC */
 static void msdc_ops_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
 	struct msdc_host *host = mmc_priv(mmc);
+	//#ifdef /*OPLUS_FEATURE_TP_BASIC */
+	if (msdc_request_explorer(mmc, mrq)) {
+		return;
+	}
+
+	//#endif /* OPLUS_FEATURE_TP_BASIC */
 
 	host->error = 0;
 	WARN_ON(host->mrq);
@@ -1272,9 +1310,22 @@ static int msdc_ops_switch_volt(struct mmc_host *mmc, struct mmc_ios *ios)
 		}
 
 		/* Apply different pinctrl settings for different signal voltage */
-		if (ios->signal_voltage == MMC_SIGNAL_VOLTAGE_180)
+		if (ios->signal_voltage == MMC_SIGNAL_VOLTAGE_180) {
 			pinctrl_select_state(host->pinctrl, host->pins_uhs);
-		else
+			if (host->id == MSDC_SD || host->id == MSDC_SDIO) {
+				/* Keep clock gated for 10 ms, though spec only says 5 ms */
+				mmc_delay(10);
+				sdr_set_bits(host->base + MSDC_CFG, MSDC_CFG_CKPDN);
+				mmc_delay(1);
+				sdr_clr_bits(host->base + MSDC_CFG, MSDC_CFG_CKPDN);
+				if (readl(host->base + MSDC_PS) & (0xf << 16))
+					return 0;
+				pr_notice(
+				"msdc%d: 1.8V regulator output did not became stable\n",
+					host->id);
+				return -EAGAIN;
+			}
+		} else
 			pinctrl_select_state(host->pinctrl, host->pins_default);
 	}
 #endif
@@ -1681,8 +1732,13 @@ static void msdc_ops_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	/* Suspend/Resume will do power off/on */
 	switch (ios->power_mode) {
 	case MMC_POWER_UP:
+		/*#ifdef OPLUS_FEATURE_TP_BASIC */
+		msdc_init_hw(host);
+		/*#endif OPLUS_FEATURE_TP_BASIC */
 		if (!IS_ERR(mmc->supply.vmmc)) {
-			msdc_init_hw(host);
+			/*#ifdef OPLUS_FEATURE_TP_BASIC */
+			/*msdc_init_hw(host);*/
+			/*#endif OPLUS_FEATURE_TP_BASIC */
 			ret = mmc_regulator_set_ocr(mmc, mmc->supply.vmmc,
 					ios->vdd);
 			if (ret) {
@@ -1702,6 +1758,13 @@ static void msdc_ops_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		}
 		break;
 	case MMC_POWER_ON:
+		/*#ifdef OPLUS_FEATURE_TP_BASIC */
+		/*add for non standard SDIO slave*/
+		if (mmc->supply.vqmmc == NULL || IS_ERR(mmc->supply.vqmmc)) {
+			dev_err(host->dev, "xxxxx Failed to set vqmmc power!, it NULL\n");
+			break;
+		}
+		/*#endif*/ /*OPLUS_FEATURE_TP_BASIC */
 		if (mmc->supply.vqmmc == NULL || IS_ERR(mmc->supply.vqmmc)) {
 			dev_info(host->dev, "vqmmc is null, not set!\n");
 			break;
@@ -1715,6 +1778,13 @@ static void msdc_ops_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		}
 		break;
 	case MMC_POWER_OFF:
+		/*#ifdef OPLUS_FEATURE_TP_BASIC */
+		/*add for non standard SDIO slave*/
+		if (mmc->supply.vmmc == NULL  || IS_ERR(mmc->supply.vmmc)) {
+			dev_err(host->dev, "xxxxx Failed to set vmmc power!, it NULL\n");
+			break;
+		}
+		/*#endif*/ /*OPLUS_FEATURE_TP_BASIC */
 		if (mmc->supply.vmmc == NULL  || IS_ERR(mmc->supply.vmmc)) {
 			dev_info(host->dev, "vmmc is null, not set!\n");
 			break;
@@ -2519,7 +2589,50 @@ static void msdc_cqe_post_disable(struct mmc_host *mmc)
 	cqhci_writel(cq_host, reg, CQHCI_CFG);
 }
 
-static const struct mmc_host_ops mt_msdc_ops = {
+//#ifdef /*OPLUS_FEATURE_TP_BASIC */
+static void msdc_hsmmc_init_card(struct mmc_host *mmc, struct mmc_card *card)
+{
+	//struct omap_hsmmc_host *host = mmc_priv(mmc);
+
+	pr_debug("xxxxx init non standard SDIO card\n");
+	if (card->type == MMC_TYPE_SDIO || card->type == MMC_TYPE_SD_COMBO) {
+		//struct device_node *np = mmc_dev(mmc)->of_node;
+
+		/*
+		 * REVISIT: should be moved to sdio core and made more
+		 * general e.g. by expanding the DT bindings of child nodes
+		 * to provide a mechanism to provide this information:
+		 * Documentation/devicetree/bindings/mmc/mmc-card.txt
+		 */
+
+		//np = of_get_compatible_child(np, "ti,wl1251");
+		//if (np) {
+			/*
+			 * We have TI wl1251 attached to MMC3. Pass this
+			 * information to the SDIO core because it can't be
+			 * probed by normal methods.
+			 */
+	get_device(&card->dev); //Add zengchuixi@bsp for sdio panic for except detect
+
+        pr_debug("xxxxx quirks in \n");
+			card->quirks |= MMC_QUIRK_NONSTD_SDIO;
+                        card->cccr.multi_block = 1;
+			card->cccr.wide_bus = 1;
+			card->cis.vendor = 0x1919;
+			card->cis.device = 0x9066;
+			card->cis.blksize = 512;
+			card->cis.max_dtr = 50000000;
+			card->ocr = 0x80;
+			//of_node_put(np);
+		//}
+	}
+}
+
+//#endif /* OPLUS_FEATURE_TP_BASIC */
+
+/*#ifdef OPLUS_FEATURE_TP_BASIC */
+static  struct mmc_host_ops mt_msdc_ops = {
+/* #endif OPLUS_FEATURE_TP_BASIC */
 	.post_req = msdc_post_req,
 	.pre_req = msdc_pre_req,
 	.request = msdc_ops_request,
@@ -2527,6 +2640,7 @@ static const struct mmc_host_ops mt_msdc_ops = {
 	.get_ro = mmc_gpio_get_ro,
 	.get_cd = msdc_get_cd,
 	.hs400_enhanced_strobe = msdc_hs400_enhanced_strobe,
+	.init_card = msdc_hsmmc_init_card,
 	.enable_sdio_irq = msdc_enable_sdio_irq,
 	.ack_sdio_irq = msdc_ack_sdio_irq,
 	.start_signal_voltage_switch = msdc_ops_switch_volt,
@@ -2638,6 +2752,20 @@ static void msdc_of_property_parse(struct platform_device *pdev,
 	else
 		host->cqhci = false;
 
+	//#ifdef /*OPLUS_FEATURE_TP_BASIC */
+	if (of_property_read_u32(pdev->dev.of_node, "explorer_support", &host->explorer_support)) {
+		pr_err("mmc%d:failed to get explorer_support\n", host->id);
+		host->explorer_support = 0;
+	} else {
+		pr_err("mmc%d:explorer_support:%d\n", host->id, host->explorer_support);
+	}
+	if (of_property_read_u32(pdev->dev.of_node, "filter_enable", &host->filter_enable)) {
+		pr_err("mmc%d:failed to get filter_enable\n", host->id);
+		host->filter_enable = 0;
+	} else {
+		pr_err("mmc%d:filter_enable:%d\n", host->id, host->filter_enable);
+	}
+	//#endif /* OPLUS_FEATURE_TP_BASIC */}
 	if (of_property_read_bool(pdev->dev.of_node, "mediatek,mmc-qos"))
 		host->qos_enable = true;
 	else
@@ -2776,6 +2904,7 @@ static int msdc_drv_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
+	pr_err("msdc_drv_probe xxxxxx ko_add_boot \n");
 	/* Allocate MMC host for this device */
 	mmc = mmc_alloc_host(sizeof(struct msdc_host), &pdev->dev);
 	if (!mmc)
@@ -2870,6 +2999,11 @@ static int msdc_drv_probe(struct platform_device *pdev)
 	mmc->ocr_avail = MSDC_OCR_AVAIL;
 #endif
 	/* Set host parameters to mmc */
+	//#ifdef /*OPLUS_FEATURE_TP_BASIC */
+	if (host->explorer_support) {
+		mt_msdc_ops.init_card = msdc_hsmmc_init_card;
+	}
+	//#endif /* OPLUS_FEATURE_TP_BASIC */
 	mmc->ops = &mt_msdc_ops;
 	if (host->dev_comp->clk_div_bits == 8)
 		mmc->f_min = DIV_ROUND_UP(host->src_clk_freq, 4 * 255);
@@ -2959,7 +3093,11 @@ static int msdc_drv_probe(struct platform_device *pdev)
 	if (ret)
 		goto release;
 
-	if (host->id == MSDC_SDIO) {
+	/*#ifdef OPLUS_FEATURE_TP_BASIC */
+	if (!host->explorer_support && host->id == MSDC_SDIO) {
+	/*else */
+	/*if (host->id == MSDC_SDIO) { */
+	/* #endif OPLUS_FEATURE_TP_BASIC */
 		ret = request_sdio_eint_irq(host);
 		if (ret)
 			dev_info(host->dev, "failed to register sdio eint irq!\n");
@@ -3077,6 +3215,7 @@ static void msdc_restore_reg(struct msdc_host *host)
 		sdr_clr_bits(host->base + SDC_ADV_CFG0, SDC_NEW_TX_EN);
 		sdr_set_bits(host->base + SDC_ADV_CFG0, SDC_NEW_TX_EN);
 	}
+
 	if (support_new_rx(host->dev_comp->new_rx_ver)) {
 		sdr_clr_bits(host->base + MSDC_NEW_RX_CFG, MSDC_NEW_RX_PATH_SEL);
 		sdr_set_bits(host->base + MSDC_NEW_RX_CFG, MSDC_NEW_RX_PATH_SEL);
@@ -3118,7 +3257,11 @@ static int __maybe_unused msdc_runtime_suspend(struct device *dev)
 	struct msdc_host *host = mmc_priv(mmc);
 
 	sdr_clr_bits(host->base + SDC_CFG, SDC_CFG_SDIOIDE);
-	if (host->sdio_irq_cnt == 0 && host->id == MSDC_SDIO) {
+	/*#ifdef OPLUS_FEATURE_TP_BASIC */
+	if (!host->explorer_support && host->sdio_irq_cnt == 0 && host->id == MSDC_SDIO) {
+	/*else*/
+	/*if (host->sdio_irq_cnt == 0 && host->id == MSDC_SDIO) { */
+	/*#endif OPLUS_FEATURE_TP_BASIC */
 		enable_irq(host->eint_irq);
 		enable_irq_wake(host->eint_irq);
 		host->sdio_irq_cnt++;
@@ -3130,6 +3273,7 @@ static int __maybe_unused msdc_runtime_suspend(struct device *dev)
 	if (host->dvfsrc_vcore_power && host->req_vcore) {
 		if (regulator_set_voltage(host->dvfsrc_vcore_power, 0, INT_MAX))
 			pr_info("%s: failed to set vcore to MIN\n", __func__);
+		pr_notice("[MTK DEBUG]%s: success to release vcore\n", __func__);
 	}
 	cpu_latency_qos_update_request(&host->pm_qos_req,
 		PM_QOS_DEFAULT_VALUE);
@@ -3151,6 +3295,7 @@ static int __maybe_unused msdc_runtime_resume(struct device *dev)
 			host->req_vcore, INT_MAX))
 			pr_info("%s: failed to set vcore to %d\n",
 				__func__, host->req_vcore);
+		pr_notice("[MTK DEBUG]%s: success to fix vcore\n", __func__);
 	}
 
 	ret = msdc_ungate_clock(host);
@@ -3159,7 +3304,11 @@ static int __maybe_unused msdc_runtime_resume(struct device *dev)
 
 	msdc_restore_reg(host);
 
-	if (host->sdio_irq_cnt > 0 && host->id == MSDC_SDIO) {
+	/*#ifdef OPLUS_FEATURE_TP_BASIC */
+	if (!host->explorer_support && host->sdio_irq_cnt > 0 && host->id == MSDC_SDIO) {
+	/*else*/
+	/*if (host->sdio_irq_cnt > 0 && host->id == MSDC_SDIO) {*/
+	/*#endif /OPLUS_FEATURE_TP_BASIC */
 		disable_irq_nosync(host->eint_irq);
 		disable_irq_wake(host->eint_irq);
 		host->sdio_irq_cnt--;
@@ -3173,18 +3322,29 @@ static int __maybe_unused msdc_suspend(struct device *dev)
 {
 	struct mmc_host *mmc = dev_get_drvdata(dev);
 	int ret;
-
+	//#ifdef OPLUS_FEATURE_TP_BASIC
+	struct msdc_host *host = mmc_priv(mmc);
+	//#endif /OPLUS_FEATURE_TP_BASIC
 	if (mmc->caps2 & MMC_CAP2_CQE) {
 		ret = cqhci_suspend(mmc);
 		if (ret)
 			return ret;
 	}
+	//#ifdef OPLUS_FEATURE_TP_BASIC
+	pinctrl_select_state(host->pinctrl, host->pins_default);
+	//#endif /OPLUS_FEATURE_TP_BASIC
 
 	return pm_runtime_force_suspend(dev);
 }
 
 static int __maybe_unused msdc_resume(struct device *dev)
 {
+	//#ifdef OPLUS_FEATURE_TP_BASIC
+	struct mmc_host *mmc = dev_get_drvdata(dev);
+	struct msdc_host *host = mmc_priv(mmc);
+	pinctrl_select_state(host->pinctrl, host->pins_uhs);
+	//#endif /OPLUS_FEATURE_TP_BASIC
+
 	return pm_runtime_force_resume(dev);
 }
 

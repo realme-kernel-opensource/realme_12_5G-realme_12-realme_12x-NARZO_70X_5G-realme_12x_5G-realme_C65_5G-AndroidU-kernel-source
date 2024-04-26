@@ -811,7 +811,9 @@
   proc_mkdir
   psi_system
   __pskb_copy_fclone
+  psi_system
   pskb_expand_head
+  __put_task_struct
   put_device
   put_pages_list
   put_pid
@@ -1135,6 +1137,8 @@
   __traceiter_android_vh_cpufreq_fast_switch
   __traceiter_android_vh_cpufreq_resolve_freq
   __traceiter_android_vh_cpufreq_target
+  __traceiter_android_vh_check_uninterruptible_tasks
+  __traceiter_android_vh_check_uninterruptible_tasks_dn
   __traceiter_android_vh_disable_thermal_cooling_stats
   __traceiter_android_vh_drm_atomic_check_modeset
   __traceiter_android_vh_dump_throttled_rt_tasks
@@ -1231,6 +1235,8 @@
   __tracepoint_android_vh_cpufreq_fast_switch
   __tracepoint_android_vh_cpufreq_resolve_freq
   __tracepoint_android_vh_cpufreq_target
+  __tracepoint_android_vh_check_uninterruptible_tasks
+  __tracepoint_android_vh_check_uninterruptible_tasks_dn
   __tracepoint_android_vh_disable_thermal_cooling_stats
   __tracepoint_android_vh_drm_atomic_check_modeset
   __tracepoint_android_vh_dump_throttled_rt_tasks
@@ -3104,6 +3110,12 @@
   __tracepoint_android_vh_ufs_send_uic_command
   __tracepoint_android_vh_ufs_update_sdev
   __tracepoint_android_vh_ufs_update_sysfs
+  scsi_autopm_get_device
+  scsi_autopm_put_device
+  scsi_block_when_processing_errors
+  scsi_cmd_allowed
+  scsi_device_quiesce
+  __scsi_iterate_devices
   ufshcd_add_command_trace
   ufshcd_auto_hibern8_update
   ufshcd_config_pwr_mode

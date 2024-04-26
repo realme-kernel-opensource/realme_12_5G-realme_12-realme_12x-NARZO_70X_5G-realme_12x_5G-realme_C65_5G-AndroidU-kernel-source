@@ -884,11 +884,20 @@ static void mtu3_shutdown(struct platform_device *pdev)
 {
 	struct ssusb_mtk *ssusb = platform_get_drvdata(pdev);
 	struct otg_switch_mtk *otg_sx = &ssusb->otg_switch;
-
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	unsigned long flags;
+	struct mtu3 *mtu = ssusb->u3d;
+#endif
 	dev_info(ssusb->dev, "%s role %d\n", __func__, otg_sx->current_role);
-
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	spin_lock_irqsave(&mtu->lock, flags);
+	if (mtu->is_active && otg_sx->current_role == USB_ROLE_DEVICE)
+		mtu3_stop(ssusb->u3d);
+	spin_unlock_irqrestore(&mtu->lock, flags);
+#else
 	if (ssusb->clk_mgr && otg_sx->current_role == USB_ROLE_DEVICE)
 		mtu3_stop(ssusb->u3d);
+#endif
 }
 
 static int resume_ip_and_ports(struct ssusb_mtk *ssusb, pm_message_t msg)

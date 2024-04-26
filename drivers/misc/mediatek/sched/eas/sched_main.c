@@ -21,6 +21,9 @@
 #include "common.h"
 #include "eas_plus.h"
 #include "sched_sys_common.h"
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
+#include <../kernel/oplus_cpu/sched/sched_assist/sa_common.h>
+#endif
 #include "sugov/cpufreq.h"
 
 #define CREATE_TRACE_POINTS
@@ -124,6 +127,13 @@ static void sched_queue_task_hook(void *data, struct rq *rq, struct task_struct 
 		printk_deferred("%s duration %llu, ts[0]=%llu, ts[1]=%llu\n",
 				__func__, ts[1] - ts[0], ts[0], ts[1]);
 	}
+#endif
+
+#if IS_ENABLED(CONFIG_OPLUS_FEATURE_SCHED_ASSIST)
+	if (type == enqueue)
+		android_rvh_enqueue_task_handler(data, rq, p, flags);
+	else
+		android_rvh_dequeue_task_handler(data, rq, p, flags);
 #endif
 }
 

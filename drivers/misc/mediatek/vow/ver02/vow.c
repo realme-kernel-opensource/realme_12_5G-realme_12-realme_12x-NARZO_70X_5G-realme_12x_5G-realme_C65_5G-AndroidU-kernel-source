@@ -919,12 +919,14 @@ static bool vow_service_SetSpeakerModel(unsigned long arg)
 	char *ptr8;
 #endif
 
-	I = vow_service_FindFreeSpeakerModel();
-	if (I == -1)
-		return false;
-
 	if (vow_service_GetParameter(arg) != 0)
 		return false;
+	I  = vow_service_SearchSpeakerModelWithKeyword(vowserv.vow_info_apuser[1]);
+	if (I  < 0) {
+		I = vow_service_FindFreeSpeakerModel();
+		if (I == -1)
+			return false;
+	}
 #if IS_ENABLED(CONFIG_MTK_TINYSYS_SCP_SUPPORT)
 	mutex_lock(&vow_sendspkmdl_mutex);
 	vowserv.vow_speaker_model[I].model_ptr =

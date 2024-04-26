@@ -140,6 +140,7 @@ static void __update_cpu_freq_locked(void)
 			}
 		} else {
 			freq_qos_update_request(&(fbt_cpu_rq[i]), fbt_max_freq[i]);
+            fbt_final_ceiling[i] = fbt_max_freq[i];
 			__cpu_ctrl_freq_systrace(i, fbt_max_freq[i]);
 		}
 	}
@@ -484,7 +485,7 @@ int fbt_set_cpu_freq_ceiling(int num, int *freq)
 
 	for (i = 0; i < policy_num && i < num; i++) {
 #if DEBUG_LOG
-		pr_info("%s i:%d, freq:%d\n", __func__, i, freq[i]);
+		pr_info("%s Cluster i:%d, freq:%d, num:%d\n", __func__, i, freq[i], num);
 #endif
 		if (fbt_last_ceiling[i] != freq[i]) {
 			need_update = 1;

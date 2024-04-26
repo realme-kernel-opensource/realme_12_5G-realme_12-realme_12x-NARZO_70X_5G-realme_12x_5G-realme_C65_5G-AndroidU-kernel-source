@@ -9,6 +9,9 @@
 
 #include <trace/hooks/vendor_hooks.h>
 
+struct shrink_control;
+struct shrinker;
+
 DECLARE_RESTRICTED_HOOK(android_rvh_set_balance_anon_file_reclaim,
 			TP_PROTO(bool *balance_anon_file_reclaim),
 			TP_ARGS(balance_anon_file_reclaim), 1);

@@ -1440,8 +1440,12 @@ static void fsm_routine_wdt(struct ccci_fsm_ctl *ctl,
 			fsm_routine_exception(ctl, NULL, EXCEPTION_WDT);
 		}
 	}
-	if (reset_md)
+	if (reset_md) {
 		fsm_monitor_send_message(CCCI_MD_MSG_RESET_REQUEST, 0);
+	//#ifdef OPLUS_FEATURE_MDRST
+		inject_md_status_event(MD_STA_EV_RESET_REQUEST, "WDT_RESET");
+	//#endif
+	}
 
 	fsm_finish_command(ctl, cmd, 1);
 }

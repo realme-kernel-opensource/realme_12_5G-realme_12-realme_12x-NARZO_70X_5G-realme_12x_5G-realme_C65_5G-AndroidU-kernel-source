@@ -7169,6 +7169,7 @@ static int read_one_chunk(struct btrfs_key *key, struct extent_buffer *leaf,
 				   BTRFS_UUID_SIZE);
 		args.uuid = uuid;
 		map->stripes[i].dev = btrfs_find_device(fs_info->fs_devices, &args);
+
 		if (!map->stripes[i].dev) {
 			map->stripes[i].dev = handle_missing_device(fs_info,
 								    devid, uuid);

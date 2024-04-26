@@ -1,6 +1,18 @@
 # SPDX-License-Identifier: GPL-2.0
-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat
+#mtk origin config below
+#ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/
+#/* #ifdef OPLUS_FEATURE_DISPLAY */
+#oplus addd for panel need mtk_dsi.h
+ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/    \
+             -I$(srctree)/drivers/misc/mediatek/mtk-interconnect/   \
+             -I$(srctree)/drivers/misc/mediatek/slbc/
+#/* #endif OPLUS_FEATURE_DISPLAY */
 
+obj-$(CONFIG_DRM_PANEL_OPLUS23661_TM_NT36672C_FHD_DSI_VDO) += oplus23661_tm_nt36672c_fhd_dsi_vdo.o
+obj-$(CONFIG_DRM_PANEL_OPLUS23700_TM_NT36672C_FHD_DSI_VDO) += oplus23700_tm_nt36672c_fhd_dsi_vdo.o
+obj-$(CONFIG_DRM_PANEL_OPLUS23700_CSOT_TD4377_FHD_DSI_VDO) += oplus23700_csot_td4377_fhd_dsi_vdo.o
+obj-$(CONFIG_DRM_PANEL_OPLUS23706_HKC_ILI9883C_HD_DSI_VDO) += oplus23706_hkc_ili9883c_hd_dsi_vdo.o
+obj-$(CONFIG_DRM_PANEL_OPLUS23706_TXD_FT8057P_HD_DSI_VDO) += oplus23706_txd_ft8057p_hd_dsi_vdo.o
 obj-$(CONFIG_DRM_PANEL_ABT_Y030XX067A) += panel-abt-y030xx067a.o
 obj-$(CONFIG_DRM_PANEL_ARM_VERSATILE) += panel-arm-versatile.o
 obj-$(CONFIG_DRM_PANEL_ASUS_Z00T_TM5P5_NT35596) += panel-asus-z00t-tm5p5-n35596.o
@@ -96,6 +108,11 @@ obj-$(CONFIG_DRM_PANEL_TRULY_NT35595_CMD) += panel-truly-nt35595-cmd.o
 obj-$(CONFIG_DRM_PANEL_NT37801_MSYNC2_RTE) += panel-nt37801-msync2-rte.o
 obj-$(CONFIG_DRM_PANEL_SAMSUNG_S68FC01_VDO_AOD) += panel-samsung-s68fc01-vdo-aod.o
 obj-$(CONFIG_DRM_PANEL_ALPHA_SAMSUNG_S6E3HAE_CMD_120HZ) += panel-alpha-samsung-s6e3hae-fhd-dphy-cmd-120hz-r4831a.o
+obj-$(CONFIG_DRM_PANEL_OPLUS21007_SAMSUNG_AMB670YF01_QHD_DSI_CMD) += oplus21007_samsung_amb670yf01_qhd_dsi_cmd.o
+obj-$(CONFIG_DRM_PANEL_OPLUS21135_TM_NT37705_FHD_DSI_CMD) += oplus21135_tm_nt37705_fhd_dsi_cmd.o
+obj-$(CONFIG_DRM_PANEL_AC068_P_3_A0001_FHD_CMD) += AC068_P_3_A0001_fhd_cmd.o
+obj-$(CONFIG_DRM_PANEL_OPLUS22023_SAMSUNG_AMF680CM01_FHD_DSI_CMD) += oplus22023_samsung_amf680cm01_fhd_dsi_cmd.o
+obj-$(CONFIG_DRM_PANEL_AC068_S_3_A0008_HD_CMD) += AC068_S_3_A0008-hd-cmd.o
 obj-$(CONFIG_DRM_PANEL_NT37801_CMD_LTPO) += panel-nt37801-cmd-ltpo.o
 obj-$(CONFIG_DRM_PANEL_NT37801_CMD_120HZ) += panel-nt37801-cmd-120hz.o
 obj-$(CONFIG_DRM_PANEL_L12A_42_02_0A_DSC_CMD) += panel-l12a-42-02-0a-dsc-cmd.o
@@ -140,3 +157,5 @@ obj-$(CONFIG_DRM_MEDIATEK_PANEL) += mediatek-drm-panel-drv.o
 obj-$(CONFIG_DRM_MEDIATEK_PANEL) += mediatek-cust-panel-sample.o
 
 ccflags-$(CONFIG_DRM_MEDIATEK_PANEL) += -I$(srctree)/drivers/leds/
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/
+subdir-ccflags-y += -I$(srctree)/drivers/misc/mediatek/include/mt-plat/

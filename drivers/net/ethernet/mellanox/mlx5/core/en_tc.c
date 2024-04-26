@@ -4225,7 +4225,6 @@ static int parse_tc_fdb_actions(struct mlx5e_priv *priv,
 		 * On restore (miss), we'll just set this saved tunnel
 		 * device.
 		 */
-
 		NL_SET_ERR_MSG(extack, "Decap with goto isn't supported");
 		netdev_warn(priv->netdev, "Decap with goto isn't supported");
 		return -EOPNOTSUPP;

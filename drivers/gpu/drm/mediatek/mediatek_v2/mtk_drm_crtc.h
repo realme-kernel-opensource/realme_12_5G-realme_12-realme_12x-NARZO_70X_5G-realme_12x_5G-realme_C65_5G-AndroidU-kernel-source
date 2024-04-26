@@ -418,7 +418,19 @@ enum MTK_CRTC_PROP {
 	CRTC_PROP_OVL_DSI_SEQ,
 	CRTC_PROP_OUTPUT_SCENARIO,
 	CRTC_PROP_CAPS_BLOB_ID,
+#ifdef OPLUS_FEATURE_DISPLAY_ADFR
+	CRTC_PROP_AUTO_MODE,
+	CRTC_PROP_AUTO_FAKE_FRAME,
+	CRTC_PROP_AUTO_MIN_FPS,
+#endif /* OPLUS_FEATURE_DISPLAY_ADFR */
+#ifdef OPLUS_FEATURE_DISPLAY_PANELCHAPLIN
+	CRTC_PROP_HW_BLENDSPACE,
+#endif
 	CRTC_PROP_AOSP_CCORR_LINEAR,
+/* #ifdef OPLUS_FEATURE_LOCAL_HDR  */
+	CRTC_PROP_HW_BRIGHTNESS,
+	CRTC_PROP_BRIGHTNESS_NEED_SYNC,
+/* #endif */
 	CRTC_PROP_MAX,
 };
 
@@ -643,6 +655,8 @@ struct mtk_scaling_ctx {
 	int lcm_width;
 	int lcm_height;
 	struct drm_display_mode *scaling_mode;
+	bool cust_mode_mapping;
+	int mode_mapping[MAX_MODES];
 };
 
 struct mtk_drm_fake_vsync {
@@ -889,6 +903,7 @@ struct mtk_drm_crtc {
 
 	unsigned int avail_modes_num;
 	struct drm_display_mode *avail_modes;
+	struct mtk_panel_params **panel_params;
 	struct timespec64 vblank_time;
 
 	bool mipi_hopping_sta;
@@ -900,6 +915,9 @@ struct mtk_drm_crtc {
 	bool layer_rec_en;
 	unsigned int mode_change_index;
 	int mode_idx;
+#ifdef OPLUS_FEATURE_DISPLAY
+	bool skip_unnecessary_switch;
+#endif /* OPLUS_FEATURE_DISPLAY */
 	int mode_chg;
 	enum RES_SWITCH_TYPE res_switch;
 	struct mtk_scaling_ctx scaling_ctx;
@@ -963,6 +981,22 @@ struct mtk_drm_crtc {
 
 	atomic_t force_high_step;
 	int force_high_enabled;
+#ifdef OPLUS_FEATURE_DISPLAY_PANELCHAPLIN
+	int blendspace;
+#endif
+/* #ifdef OPLUS_FEATURE_LOCAL_HDR  */
+	/* indicate that whether the current frame backlight has been updated */
+	bool oplus_backlight_updated;
+#ifdef OPLUS_FEATURE_DISPLAY_APOLLO
+	int oplus_pending_backlight;
+	bool oplus_backlight_need_sync;
+	bool oplus_power_on;
+	bool oplus_refresh_rate_switching;
+	int oplus_te_tag_ns;
+	int oplus_te_diff_ns;
+#endif /* OPLUS_FEATURE_DISPLAY_APOLLO */
+/* #endif OPLUS_FEATURE_LOCAL_HDR */
+
 	struct total_tile_overhead tile_overhead;
 
 	//discrete
@@ -1171,6 +1205,7 @@ void mtk_crtc_start_sodi_loop(struct drm_crtc *crtc);
 bool mtk_crtc_with_event_loop(struct drm_crtc *crtc);
 void mtk_crtc_stop_event_loop(struct drm_crtc *crtc);
 void mtk_crtc_start_event_loop(struct drm_crtc *crtc);
+bool mtk_crtc_is_event_loop_active(struct mtk_drm_crtc *mtk_crtc);
 
 void mtk_crtc_change_output_mode(struct drm_crtc *crtc, int aod_en);
 int mtk_crtc_user_cmd(struct drm_crtc *crtc, struct mtk_ddp_comp *comp,
@@ -1277,5 +1312,29 @@ int mtk_drm_setbacklight(struct drm_crtc *crtc, unsigned int level,
 			unsigned int panel_ext_param, unsigned int cfg_flag);
 int mtk_drm_setbacklight_grp(struct drm_crtc *crtc, unsigned int level,
 			unsigned int panel_ext_param, unsigned int cfg_flag);
+void mtk_crtc_update_gce_event(struct mtk_drm_crtc *mtk_crtc);
+void mtk_crtc_cwb_addon_rst(struct drm_crtc *crtc, struct cmdq_pkt *cmdq_handle);
+void mtk_crtc_wb_addon_rst(struct drm_crtc *crtc, struct cmdq_pkt *cmdq_handle);
+void mtk_crtc_lye_addon_module_rst(struct drm_crtc *crtc, struct cmdq_pkt *cmdq_handle);
+void mtk_crtc_addon_connector_rst(struct drm_crtc *crtc, struct cmdq_pkt *cmdq_handle);
+void mtk_crtc_default_path_rst(struct drm_crtc *crtc, struct cmdq_pkt *cmdq_handle);
+void mtk_crtc_rst_module(struct drm_crtc *crtc);
+
+#ifdef OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT
+void mtk_atomic_hbm_bypass_pq(struct drm_crtc *crtc,
+		struct cmdq_pkt *handle, int en);
+#endif /* OPLUS_FEATURE_DISPLAY_ONSCREENFINGERPRINT */
+#ifdef OPLUS_FEATURE_DISPLAY
+void mtk_drm_send_lcm_cmd_prepare(struct drm_crtc *crtc,
+	struct cmdq_pkt **cmdq_handle);
+void mtk_drm_send_lcm_cmd_flush(struct drm_crtc *crtc,
+	struct cmdq_pkt **cmdq_handle, bool sync);
+#endif /* OPLUS_FEATURE_DISPLAY */
+
+#ifdef OPLUS_FEATURE_DISPLAY_APOLLO
+int mtk_drm_setbacklight_without_lock(struct drm_crtc *crtc, unsigned int level,
+			unsigned int panel_ext_param, unsigned int cfg_flag);
+#endif /* OPLUS_FEATURE_DISPLAY_APOLLO */
+
 void mtk_crtc_update_gce_event(struct mtk_drm_crtc *mtk_crtc);
 #endif /* MTK_DRM_CRTC_H */

@@ -30,6 +30,10 @@
 
 #include "../../misc/mediatek/smi/mtk-smi-dbg.h"
 
+#ifndef OPLUS_FEATURE_CAMERA_COMMON
+#define OPLUS_FEATURE_CAMERA_COMMON
+#endif /*OPLUS_FEATURE_CAMERA_COMMON*/
+
 static u8 mmdvfs_clk_num;
 static struct mtk_mmdvfs_clk *mtk_mmdvfs_clks;
 
@@ -262,6 +266,8 @@ static int mmdvfs_vcp_ipi_send(const u8 func, const u8 idx, const u8 opp, u32 *d
 
 	while (!is_vcp_ready_ex(VCP_A_ID) ||
 		(!mmdvfs_vcp_cb_ready && func != FUNC_MMDVFS_INIT) || mmdvfs_rst_clk_done) {
+		if (mmdvfs_rst_clk_done && func == FUNC_CLKMUX_ENABLE)
+			break;
 		if (func == FUNC_VMM_GENPD_NOTIFY || func == FUNC_VMM_CEIL_ENABLE)
 			goto ipi_send_end;
 		if (++retry > 100) {
@@ -869,6 +875,7 @@ static int mmdvfs_pm_notifier(struct notifier_block *notifier, unsigned long pm_
 		}
 		mmdvfs_reset_ccu();
 		mmdvfs_reset_vcp();
+		mmdvfs_reset_clk(true);
 		break;
 	}
 	return NOTIFY_DONE;

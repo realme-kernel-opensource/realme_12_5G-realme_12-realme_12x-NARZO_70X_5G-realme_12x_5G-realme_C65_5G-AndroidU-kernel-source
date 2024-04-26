@@ -23,9 +23,13 @@
 #include <linux/of_device.h>
 #include <linux/of_irq.h>
 #include <linux/platform_device.h>
+#include <linux/pm_qos.h>
 #include <linux/scatterlist.h>
 #include <linux/sched.h>
 #include <linux/slab.h>
+#ifdef OPLUS_FEATURE_CHG_BASIC
+#include "../../misc/mediatek/include/mt-plat/mtk_boot_common.h"
+#endif
 
 #define I2C_CONFERR			(1 << 9)
 #define I2C_RS_TRANSFER			(1 << 4)
@@ -59,8 +63,9 @@
 #define I2C_RD_TRANAC_VALUE		0x0001
 #define I2C_SCL_MIS_COMP_VALUE		0x0000
 #define I2C_CHN_CLR_FLAG		0x0000
+#ifndef OPLUS_FEATURE_CHG_BASIC
 #define I2C_DEBUGCTRL_BUS		0x0004
-
+#endif
 #define I2C_DMA_CON_TX			0x0000
 #define I2C_DMA_CON_RX			0x0001
 #define I2C_DMA_ASYNC_MODE		0x0004
@@ -307,6 +312,17 @@ struct mtk_i2c {
 	bool master_code_sended;
 	struct mtk_i2c_ac_timing ac_timing;
 	const struct mtk_i2c_compatible *dev_comp;
+#ifdef OPLUS_FEATURE_CHG_BASIC
+/* oplus add for i2c-7 reset */
+	struct pinctrl *pctrl;
+	struct delayed_work i2c_gpio_reset_work;
+	bool i2c_reset_processing;
+	int err_count_for_reset;
+	/* workaround for I2C pull SDA can't trigger error issue 230504153935012779 */
+	bool i2c_err_flag_ext;
+	/* end workaround 230504153935012779 */
+	struct pm_qos_request i2c_qos_request;
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
 };
 
 /**
@@ -548,10 +564,14 @@ static void mtk_i2c_writew(struct mtk_i2c *i2c, u16 val,
 	writew(val, i2c->base + i2c->ch_offset_i2c + i2c->dev_comp->regs[reg]);
 }
 
+/* workaround for revert disable IBI 230515154944573363 */
+#ifndef OPLUS_FEATURE_CHG_BASIC
 static u16 mtk_i2c_readw_shadow(struct mtk_i2c *i2c, enum I2C_REGS_OFFSET reg)
 {
 	return readw(i2c->base + i2c->dev_comp->regs[reg]);
 }
+#endif
+/* end workaround 230515154944573363 */
 
 static void mtk_i2c_writew_shadow(struct mtk_i2c *i2c, u16 val,
 			   enum I2C_REGS_OFFSET reg)
@@ -612,7 +632,9 @@ static void mtk_i2c_init_hw(struct mtk_i2c *i2c)
 {
 	u16 control_reg;
 	u16 intr_stat_reg;
+#ifndef OPLUS_FEATURE_CHG_BASIC
 	u16 debugctrl_reg;
+#endif
 
 	mtk_i2c_writew(i2c, I2C_CHN_CLR_FLAG, OFFSET_START);
 	intr_stat_reg = mtk_i2c_readw(i2c, OFFSET_INTR_STAT);
@@ -639,11 +661,15 @@ static void mtk_i2c_init_hw(struct mtk_i2c *i2c)
 	/* config scp i2c ch2 intr to ap */
 	if (i2c->ch_offset_i2c == I2C_OFFSET_SCP)
 		mtk_i2c_writew(i2c, I2C_CCU_INTR_EN, OFFSET_MCU_INTR);
+/* workaround for revert disable IBI 230515154944573363 */
+#ifndef OPLUS_FEATURE_CHG_BASIC
 	if ((i2c->ch_offset_i2c != I2C_OFFSET_SCP) &&
 		(mtk_i2c_readw_shadow(i2c, OFFSET_DMA_FSM_DEBUG) & I2C_I3C_EN)) {
 		debugctrl_reg = mtk_i2c_readw_shadow(i2c, OFFSET_DEBUGCTRL);
 		mtk_i2c_writew_shadow(i2c, debugctrl_reg & (~I2C_DEBUGCTRL_BUS), OFFSET_DEBUGCTRL);
 	}
+#endif
+/* end workaround 230515154944573363 */
 	/* Set ioconfig */
 	if (i2c->use_push_pull)
 		mtk_i2c_writew(i2c, I2C_IO_CONFIG_PUSH_PULL, OFFSET_IO_CONFIG);
@@ -1088,6 +1114,109 @@ static void mtk_i2c_dump_reg(struct mtk_i2c *i2c)
 			(readl(i2c->pdmabase + OFFSET_RX_4G_MODE)));
 }
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+/* oplus add for i2c-7 reset */
+#include <linux/pinctrl/consumer.h>
+#define I2C_RESET_BUS            7
+#define FG_DEVICE_ADDR           0x55
+#define CHG_DEVICE_ADDR          0x5c
+#define CHARGE_PUMP_DEVICE_ADDR  0x68
+#define RK826_DEVICE_ADDR        0x0A
+#define SY6610_DEVICE_ADDR       0x06
+#define DEVICE_TYPE_ZY0602       3
+#define MAX_RESET_COUNT		 10
+#define MIN_RESET_COUNT		 2
+#define I2C_STATE        "i2c-state"
+#define OUTPUT_LOW_STATE "output-low-state"
+static int fg_device_type = DEVICE_TYPE_ZY0602;
+
+/* workaround for I2C pull SDA can't trigger error issue 230504153935012779 */
+void oplus_set_fg_err_flag(struct i2c_adapter *adap, bool flag)
+{
+	struct mtk_i2c *i2c = i2c_get_adapdata(adap);
+
+	i2c->i2c_err_flag_ext = flag;
+}
+EXPORT_SYMBOL(oplus_set_fg_err_flag);
+/* end workaround 230504153935012779 */
+
+static void oplus_i2c_gpio_reset_work(struct work_struct *work)
+{
+	int ret = 0;
+	struct pinctrl *pctrl = NULL;
+	struct pinctrl_state *i2c_state = NULL;
+	struct pinctrl_state *output_low_state = NULL;
+	int boot_mode = get_boot_mode();
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct mtk_i2c *i2c = container_of(dwork,
+				struct mtk_i2c, i2c_gpio_reset_work);
+
+	if (i2c == NULL) {
+		pr_err("%s, gi2c null!!", __func__);
+		goto err;
+	}
+
+	pctrl = i2c->pctrl;
+	if (IS_ERR_OR_NULL(pctrl)) {
+		pr_err("%s: no pinctrl setting! id=%d\n", __func__, -1/*i2c->id*/);
+		goto err;
+	}
+	if (boot_mode == META_BOOT || boot_mode == FACTORY_BOOT
+		|| boot_mode == ADVMETA_BOOT || boot_mode == ATE_FACTORY_BOOT) {
+		pr_err("i2c_gpio_reset boot_mode:%d, return\n", boot_mode);
+		goto err;
+	}
+
+	pr_err("%s: i2c_reset start.\n", __func__);
+
+	i2c_state = pinctrl_lookup_state(pctrl, I2C_STATE);
+	if (IS_ERR_OR_NULL(i2c_state)) {
+		pr_err("%s: get pinctrl state: %s failed! id=%d\n", __func__, I2C_STATE, -1/*i2c->id*/);
+		goto err;
+	}
+
+	output_low_state = pinctrl_lookup_state(pctrl, OUTPUT_LOW_STATE);
+	if (IS_ERR_OR_NULL(output_low_state)) {
+		pr_err("%s: get pinctrl state: %s failed! id=%d\n", __func__, OUTPUT_LOW_STATE, -1/*i2c->id*/);
+		goto err;
+	}
+
+	ret = pinctrl_select_state(pctrl, output_low_state);
+	if (ret < 0) {
+		pr_err("%s: set pinctrl state: %s failed! id=%d\n", __func__, OUTPUT_LOW_STATE, -1/*i2c->id*/);
+		goto err;
+	}
+
+	mdelay(2500);
+
+	ret = pinctrl_select_state(pctrl, i2c_state);
+	if (ret < 0) {
+		pr_err("%s: set pinctrl state: %s failed! id=%d\n", __func__, I2C_STATE, -1/*i2c->id*/);
+		goto err;
+	}
+
+	pr_err("%s: gpio reset successful id=%d\n", __func__, -1/*i2c->id*/);
+
+err:
+	i2c->i2c_reset_processing = false;
+}
+
+int oplus_get_fg_device_type(void)
+{
+	pr_err("oplus_get_fg_device_type  fg_device_type[%d]\n", fg_device_type);
+	return fg_device_type;
+}
+EXPORT_SYMBOL(oplus_get_fg_device_type);
+
+void oplus_set_fg_device_type(int device_type)
+{
+	pr_err("oplus_set_fg_device_type  fg_device_type[%d]\n", fg_device_type);
+	fg_device_type = device_type;
+	return;
+}
+EXPORT_SYMBOL(oplus_set_fg_device_type);
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
+
 static int mtk_i2c_do_transfer(struct mtk_i2c *i2c, struct i2c_msg *msgs,
 			       int num, int left_num)
 {
@@ -1109,6 +1238,12 @@ static int mtk_i2c_do_transfer(struct mtk_i2c *i2c, struct i2c_msg *msgs,
 	int i = 0;
 	int ret;
 
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	if ((msgs->addr == FG_DEVICE_ADDR || msgs->addr == CHARGE_PUMP_DEVICE_ADDR) &&
+	    i2c->i2c_reset_processing) {
+		return -ENXIO;
+	}
+#endif
 	i2c->irq_stat = 0;
 
 	if (i2c->auto_restart)
@@ -1439,6 +1574,24 @@ static int mtk_i2c_do_transfer(struct mtk_i2c *i2c, struct i2c_msg *msgs,
 			i2c_put_dma_safe_msg_buf(dma_rd_buf, (msgs + 1), true);
 		}
 	}
+#ifdef OPLUS_FEATURE_CHG_BASIC
+/* oplus add for i2c-7 reset */
+	if ((ret == 0) || (i2c->irq_stat & (I2C_HS_NACKERR | I2C_ACKERR)) || i2c->i2c_err_flag_ext) {
+		if (msgs->addr == FG_DEVICE_ADDR || msgs->addr == CHARGE_PUMP_DEVICE_ADDR) {
+			dev_err(i2c->dev, "[OPLUS_TEST] %s, %x, %d\n", dev_name(i2c->dev), msgs->addr, i2c->err_count_for_reset);
+			if (!i2c->i2c_reset_processing) {
+				if (i2c->err_count_for_reset >= MIN_RESET_COUNT && i2c->err_count_for_reset < MAX_RESET_COUNT) {
+					i2c->i2c_reset_processing = true;
+					schedule_delayed_work(&i2c->i2c_gpio_reset_work, 0);
+				} else {
+					dev_err(i2c->dev, "err_count_for_reset(%d) >= 10 so not reset\n", i2c->err_count_for_reset);
+				}
+				if (i2c->err_count_for_reset < MAX_RESET_COUNT)
+					i2c->err_count_for_reset++;
+			}
+		}
+	}
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
 
 	if (i2c->op == I2C_MASTER_CONTINUOUS_WR) {
 		kfree(msgs->buf);
@@ -1490,6 +1643,13 @@ static int mtk_i2c_do_transfer(struct mtk_i2c *i2c, struct i2c_msg *msgs,
 			ptr++;
 		}
 	}
+#ifdef OPLUS_FEATURE_CHG_BASIC
+/* oplus add for i2c-7 reset */
+	if ((msgs->addr == FG_DEVICE_ADDR || msgs->addr == CHARGE_PUMP_DEVICE_ADDR) &&
+	    !i2c->i2c_err_flag_ext) {
+		i2c->err_count_for_reset = 0;
+	}
+#endif /*OPLUS_FEATURE_CHG_BASIC*/
 	return 0;
 }
 
@@ -1502,6 +1662,11 @@ static int mtk_i2c_transfer(struct i2c_adapter *adap,
 	u8 *dma_multi_wr_buf;
 	struct i2c_msg multi_msg[1];
 	struct mtk_i2c *i2c = i2c_get_adapdata(adap);
+
+	if (adap->nr == 5) {
+		/* update qos to prevent deep idle during transfer */
+		cpu_latency_qos_update_request(&i2c->i2c_qos_request, 50);
+	}
 
 	ret = mtk_i2c_clock_enable(i2c);
 	if (ret)
@@ -1597,6 +1762,9 @@ static int mtk_i2c_transfer(struct i2c_adapter *adap,
 
 err_exit:
 	mtk_i2c_clock_disable(i2c);
+	if (adap->nr == 5) {
+		cpu_latency_qos_update_request(&i2c->i2c_qos_request, PM_QOS_DEFAULT_VALUE);
+	}
 	return ret;
 }
 
@@ -1712,6 +1880,10 @@ static int mtk_i2c_probe(struct platform_device *pdev)
 	i2c->adap.quirks = i2c->dev_comp->quirks;
 	i2c->adap.timeout = 2 * HZ;
 	i2c->adap.retries = 1;
+#ifdef OPLUS_FEATURE_CHG_BASIC
+/* oplus add for i2c-7 reset */
+	i2c->pctrl = devm_pinctrl_get(&pdev->dev);
+#endif
 	i2c->adap.bus_regulator = devm_regulator_get_optional(&pdev->dev, "vbus");
 	if (IS_ERR(i2c->adap.bus_regulator)) {
 		if (PTR_ERR(i2c->adap.bus_regulator) == -ENODEV)
@@ -1797,6 +1969,9 @@ static int mtk_i2c_probe(struct platform_device *pdev)
 	mtk_i2c_init_hw(i2c);
 	mtk_i2c_clock_disable(i2c);
 
+	/* register qos to prevent deep idle during transfer */
+	cpu_latency_qos_add_request(&i2c->i2c_qos_request, PM_QOS_DEFAULT_VALUE);
+
 	ret = devm_request_irq(&pdev->dev, irq, mtk_i2c_irq,
 			       IRQF_NO_SUSPEND | IRQF_TRIGGER_NONE,
 			       I2C_DRV_NAME, i2c);
@@ -1812,7 +1987,14 @@ static int mtk_i2c_probe(struct platform_device *pdev)
 		return ret;
 
 	platform_set_drvdata(pdev, i2c);
-
+#ifdef OPLUS_FEATURE_CHG_BASIC
+	INIT_DELAYED_WORK(&i2c->i2c_gpio_reset_work, oplus_i2c_gpio_reset_work);
+	i2c->i2c_reset_processing = false;
+	i2c->err_count_for_reset = 0;
+	/* workaround for I2C pull SDA can't trigger error issue 230504153935012779 */
+	i2c->i2c_err_flag_ext = false;
+	/* end workaround 230504153935012779 */
+#endif
 	return 0;
 }
 

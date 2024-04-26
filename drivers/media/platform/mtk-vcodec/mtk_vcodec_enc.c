@@ -2367,6 +2367,7 @@ static int vb2ops_venc_start_streaming(struct vb2_queue *q, unsigned int count)
 	mutex_lock(&ctx->dev->enc_dvfs_mutex);
 	mtk_venc_dvfs_begin_inst(ctx);
 	mtk_venc_pmqos_begin_inst(ctx);
+	mtk_venc_pmqos_monitor_reset(ctx->dev);
 	mutex_unlock(&ctx->dev->enc_dvfs_mutex);
 
 	return 0;
@@ -2459,6 +2460,7 @@ static void vb2ops_venc_stop_streaming(struct vb2_queue *q)
 		mutex_lock(&ctx->dev->enc_dvfs_mutex);
 		mtk_venc_dvfs_end_inst(ctx);
 		mtk_venc_pmqos_end_inst(ctx);
+		mtk_venc_pmqos_monitor_reset(ctx->dev);
 		mutex_unlock(&ctx->dev->enc_dvfs_mutex);
 	}
 

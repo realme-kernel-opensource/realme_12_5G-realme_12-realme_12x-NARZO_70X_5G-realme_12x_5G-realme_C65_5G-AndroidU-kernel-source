@@ -956,6 +956,9 @@ static irqreturn_t mtk_disp_ovl_irq_handler(int irq, void *dev_id)
 		DDPIRQ("[IRQ] %s: frame done!\n", mtk_dump_comp_str(ovl));
 
 		dump_ovl_layer_trace(mtk_crtc, ovl);
+
+		if ((ovl->id == DDP_COMPONENT_OVL0_2L) && mtk_crtc_is_frame_trigger_mode(&mtk_crtc->base))
+		   atomic_set(&mtk_crtc->esd_ctx->target_time, 0);
 	}
 	if ((ovl->id == DDP_COMPONENT_OVL0_2L) && (val & (1 << 15))) {
 		DDPIRQ("[IRQ] %s: OVL target line\n", mtk_dump_comp_str(ovl));
@@ -1781,7 +1784,7 @@ static int mtk_ovl_color_manage(struct mtk_ddp_comp *comp, unsigned int idx,
 	u32 wcg_mask = 0, wcg_value = 0, sel_mask = 0, sel_value = 0, reg = 0;
 	enum mtk_drm_color_mode lcm_cm;
 	enum mtk_drm_dataspace lcm_ds = 0, plane_ds = 0;
-	struct mtk_panel_params *params;
+	struct mtk_panel_params *params = NULL;
 	int i;
 	int ovl_csc_en_cur = 0;
 	unsigned int ocfbn = 0;
@@ -1817,15 +1820,28 @@ static int mtk_ovl_color_manage(struct mtk_ddp_comp *comp, unsigned int idx,
 	if ((mtk_drm_helper_get_opt(priv->helper_opt, MTK_DRM_OPT_OVL_WCG) && /* WCG condition */
 		pending->enable) ||	/* WCG condition */
 	    ovl_csc_en_cur) {	/* ovl csc condition */
-		params = mtk_drm_get_lcm_ext_params(crtc);
+		//sync dx-1 patch to fixed wcg bug
+		//params = mtk_drm_get_lcm_ext_params(crtc);
 		if (params)
 			lcm_cm = params->lcm_color_mode;
 		else
 			lcm_cm = MTK_DRM_COLOR_MODE_NATIVE;
-
 		lcm_ds = mtk_ovl_map_lcm_color_mode(lcm_cm);
 		plane_ds =
 			(enum mtk_drm_dataspace)pending->prop_val[PLANE_PROP_DATASPACE];
+		if (plane_ds == MTK_DRM_DATASPACE_DISPLAY_P3) {
+			lcm_ds = MTK_DRM_DATASPACE_DISPLAY_P3;
+		}
+
+		#ifdef OPLUS_FEATURE_DISPLAY_PANELCHAPLIN
+		lcm_cm = (enum mtk_drm_color_mode)to_mtk_crtc(crtc)->blendspace;
+		lcm_ds = mtk_ovl_map_lcm_color_mode(lcm_cm);
+		if (pending->prop_val[PLANE_PROP_IS_BT2020]) {
+			//since bt2020 is not support in ovl,will replace as bt709
+			plane_ds = lcm_ds;
+		}
+		#endif
+
 		DDPDBG("%s+ idx:%d ds:0x%08x->0x%08x\n", __func__, idx, plane_ds,
 		       lcm_ds);
 

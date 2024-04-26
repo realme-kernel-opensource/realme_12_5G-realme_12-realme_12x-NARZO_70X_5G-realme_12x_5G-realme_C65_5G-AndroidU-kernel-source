@@ -2052,6 +2052,12 @@ static inline int dpmaif_txq_set_skb_data_to_drb(struct dpmaif_tx_queue *txq,
 
 	ccci_h = *(struct ccci_header *)skb->data;
 	skb_pull(skb, sizeof(struct ccci_header));
+	if (skb->len == 0) {
+		CCCI_NORMAL_LOG(0, TAG, "[%s] error: txq%d; skb->len=0; skb=0x%lX\n",
+			__func__, txq->index, (unsigned long)skb);
+		dev_kfree_skb_any(skb);
+		return 0;
+	}
 
 	skb_check_type = get_skb_checksum_type(skb);
 	if (skb_check_type == 1) {
@@ -2495,6 +2501,10 @@ static int dpmaif_pre_stop(unsigned char hif_id)
 {
 	if (hif_id != DPMAIF_HIF_ID)
 		return -1;
+
+	if (dpmaif_ctl->dpmaif_state == DPMAIF_STATE_PWROFF ||
+		dpmaif_ctl->dpmaif_state == DPMAIF_STATE_MIN)
+		return 0;
 
 	if (dpmaif_txqs_hw_stop())
 		CCCI_ERROR_LOG(0, TAG, "[%s] error: dpmaif_txqs_hw_stop() fail.\n", __func__);

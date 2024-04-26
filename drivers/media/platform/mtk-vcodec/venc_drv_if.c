@@ -159,6 +159,14 @@ void venc_encode_prepare(void *ctx_prepare,
 		vcodec_trace_count("VENC_HW_CORE_0", 1);
 	else
 		vcodec_trace_count("VENC_HW_CORE_1", 1);
+
+	if (core_id == MTK_VENC_CORE_0) {
+		mutex_lock(&ctx->dev->enc_dvfs_mutex);
+		mtk_venc_pmqos_monitor(ctx->dev, VCODEC_SMI_MONITOR_START);
+		mtk_venc_pmqos_frame_req(ctx->dev);
+		mutex_unlock(&ctx->dev->enc_dvfs_mutex);
+	}
+
 	mutex_unlock(&ctx->hw_status);
 }
 
@@ -184,6 +192,11 @@ void venc_encode_unprepare(void *ctx_unprepare,
 
 	if (!mtk_vcodec_is_vcp(MTK_INST_ENCODER))
 		disable_irq(ctx->dev->enc_irq[core_id]);
+	if (core_id == MTK_VENC_CORE_0) {
+		mutex_lock(&ctx->dev->enc_dvfs_mutex);
+		mtk_venc_pmqos_monitor(ctx->dev, VCODEC_SMI_MONITOR_STOP);
+		mutex_unlock(&ctx->dev->enc_dvfs_mutex);
+	}
 	mtk_vcodec_enc_clock_off(ctx, core_id);
 	spin_lock_irqsave(&ctx->dev->irqlock, *flags);
 	ctx->dev->curr_enc_ctx[core_id] = NULL;

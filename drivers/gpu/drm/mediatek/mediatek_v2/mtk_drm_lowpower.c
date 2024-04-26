@@ -18,6 +18,11 @@
 #include "mtk_drm_ddp.h"
 #include "mtk_drm_ddp_comp.h"
 #include "mtk_drm_mmp.h"
+#include "mtk_drm_trace.h"
+
+#ifdef OPLUS_FEATURE_DISPLAY_ADFR
+#include "oplus_adfr.h"
+#endif /* OPLUS_FEATURE_DISPLAY_ADFR  */
 
 #define MAX_ENTER_IDLE_RSZ_RATIO 300
 
@@ -92,6 +97,8 @@ static void mtk_drm_vdo_mode_leave_idle(struct drm_crtc *crtc)
 		mtk_ddp_comp_io_cmd(comp, handle, DSI_LFR_SET, &en);
 	}
 
+	mtk_sodi_ddren(crtc, handle, true);
+
 	cmdq_pkt_flush(handle);
 	cmdq_pkt_destroy(handle);
 }
@@ -114,6 +121,12 @@ static void mtk_drm_idlemgr_enter_idle_nolock(struct drm_crtc *crtc)
 
 	if (!output_comp)
 		return;
+
+#ifdef OPLUS_FEATURE_DISPLAY_ADFR
+	if (oplus_adfr_is_support() && !index && !mtk_crtc->ddp_mode) {
+		oplus_adfr_handle_idle_mode(crtc, true);
+	}
+#endif /* OPLUS_FEATURE_DISPLAY_ADFR  */
 
 	mode = mtk_dsi_is_cmd_mode(output_comp);
 	idle_interval = mtk_drm_get_idle_check_interval(crtc);
@@ -141,6 +154,8 @@ static void mtk_drm_idlemgr_leave_idle_nolock(struct drm_crtc *crtc)
 
 	mode = mtk_dsi_is_cmd_mode(output_comp);
 	CRTC_MMP_EVENT_START(index, leave_idle, mode, 0);
+	drm_trace_tag_start("Kick idle");
+
 
 	if (mode)
 		mtk_drm_cmd_mode_leave_idle(crtc);
@@ -148,6 +163,7 @@ static void mtk_drm_idlemgr_leave_idle_nolock(struct drm_crtc *crtc)
 		mtk_drm_vdo_mode_leave_idle(crtc);
 
 	CRTC_MMP_EVENT_END(index, leave_idle, mode, 0);
+	drm_trace_tag_end("Kick idle");
 }
 
 bool mtk_drm_is_idle(struct drm_crtc *crtc)
@@ -375,6 +391,12 @@ static int mtk_drm_idlemgr_monitor_thread(void *data)
 		if (!mtk_crtc->enabled) {
 			DDP_MUTEX_UNLOCK(&mtk_crtc->lock, __func__, __LINE__);
 			mtk_crtc_wait_status(crtc, 1, MAX_SCHEDULE_TIMEOUT);
+			continue;
+		}
+
+		if (mtk_crtc_is_frame_trigger_mode(crtc) &&
+				atomic_read(&priv->crtc_rel_present[crtc_id]) <= 0) {
+			DDP_MUTEX_UNLOCK(&mtk_crtc->lock, __func__, __LINE__);
 			continue;
 		}
 
@@ -641,6 +663,9 @@ static void mtk_drm_idlemgr_enable_crtc(struct drm_crtc *crtc)
 
 	/* 1. power on mtcmos & init apsrc*/
 	mtk_drm_top_clk_prepare_enable(crtc->dev);
+
+	mtk_crtc_rst_module(crtc);
+
 	mtk_crtc_v_idle_apsrc_control(crtc, NULL, true, true,
 		MTK_APSRC_CRTC_DEFAULT, false);
 
@@ -664,7 +689,7 @@ static void mtk_drm_idlemgr_enable_crtc(struct drm_crtc *crtc)
 		mtk_crtc_prepare_instr(crtc);
 #endif
 
-	/* 5. start trigger loop first to keep gce alive */
+	/* 5. build trigger loop first to keep gce alive */
 	output_comp = mtk_ddp_comp_request_output(mtk_crtc);
 	if (!IS_ERR_OR_NULL(output_comp) &&
 		mtk_ddp_comp_get_type(output_comp->id) == MTK_DSI) {
@@ -673,7 +698,6 @@ static void mtk_drm_idlemgr_enable_crtc(struct drm_crtc *crtc)
 			mtk_crtc_start_sodi_loop(crtc);
 
 		mtk_crtc_start_trig_loop(crtc);
-		mtk_crtc_hw_block_ready(crtc);
 	}
 
 	mutex_lock(&priv->path_ctrl_lock);
@@ -714,10 +738,13 @@ static void mtk_drm_idlemgr_enable_crtc(struct drm_crtc *crtc)
 		mtk_ddp_comp_io_cmd(output_comp, NULL, SET_MMCLK_BY_DATARATE,
 				&en);
 
-	/* 13. set vblank */
+	/* 13. start trigger loop */
+	mtk_crtc_hw_block_ready(crtc);
+
+	/* 14. set vblank */
 	drm_crtc_vblank_on(crtc);
 
-	/* 14. enable fake vsync if need */
+	/* 15. enable fake vsync if need */
 	mtk_drm_fake_vsync_switch(crtc, true);
 
 	DDPINFO("crtc%d do %s-\n", crtc_id, __func__);

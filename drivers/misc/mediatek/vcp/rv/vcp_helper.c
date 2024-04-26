@@ -1967,8 +1967,8 @@ int vcp_register_feature(enum feature_id id)
 		if (feature_table[i].feature == id)
 			feature_table[i].enable++;
 	}
-	ret = vcp_enable_pm_clk(id);
 	mutex_unlock(&vcp_feature_mutex);
+	ret = vcp_enable_pm_clk(id);
 
 	return ret;
 }
@@ -1996,8 +1996,8 @@ int vcp_deregister_feature(enum feature_id id)
 			feature_table[i].enable--;
 		}
 	}
-	ret = vcp_disable_pm_clk(id);
 	mutex_unlock(&vcp_feature_mutex);
+	ret = vcp_disable_pm_clk(id);
 
 	return ret;
 }

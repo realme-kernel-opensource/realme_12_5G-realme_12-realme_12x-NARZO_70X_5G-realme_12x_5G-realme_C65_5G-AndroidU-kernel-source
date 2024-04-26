@@ -213,7 +213,7 @@ static bool is_layer_across_each_pipe(struct drm_crtc *crtc,
 	dst_w = layer_info->dst_width;
 
 	if ((dst_x + dst_w <= disp_w / 2) ||
-	    (dst_x > disp_w / 2))
+	    (dst_x >= disp_w / 2))
 		return false;
 
 	return true;
@@ -3668,6 +3668,16 @@ static int check_cross_pipe_rpo(
 	if (tile_out_len[1] >= dst_w) {
 		DDPINFO("HRT %s: skip due to out_len[%d] larger than dst_w[%d]\n",
 			__func__, tile_out_len[1], dst_w);
+		return -1;
+	}
+
+	if (param[0].in_len == param[0].out_len) {
+		DDPDBG("skip_pipe1_no_scale\n");
+		return -1;
+	}
+
+	if (param[0].in_len <= in_tile_loss[0]) {
+		DDPDBG("skip pipe0 input len less than tile loss\n");
 		return -1;
 	}
 
